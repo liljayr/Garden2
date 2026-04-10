@@ -1,6 +1,9 @@
 backend/serviceAccountKey.json
 .garden2
 
+.env
+__pycache__/
+
 my_garden/.flutter-plugins-dependencies
 my_garden/.idea
 
