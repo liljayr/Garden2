@@ -1,5 +1,7 @@
 backend/serviceAccountKey.json
 .garden2
+.garden
+node_modules
 
 .env
 __pycache__/
