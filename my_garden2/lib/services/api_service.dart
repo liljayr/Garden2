@@ -1,24 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:firebase_auth/firebase_auth.dart';
 
 class ApiService {
   static const String baseUrl = 'https://garden2-je8f.onrender.com';
-
-  static Future<String?> _getToken() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return null;
-  return await user.getIdToken();
-}
-
-static Future<Map<String, String>> _authHeaders() async {
-  final token = await _getToken();
-
-  return {
-    'Content-Type': 'application/json',
-    if (token != null) 'Authorization': 'Bearer $token',
-  };
-}
 
   // ── Gratitude ──────────────────────────────────────────
 
@@ -109,9 +93,6 @@ static Future<Map<String, String>> _authHeaders() async {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(friend),
     );
-    print("Sending request...");
-    print(res.statusCode);
-    print(res.body);
     return jsonDecode(res.body);
   }
 
@@ -131,28 +112,16 @@ static Future<Map<String, String>> _authHeaders() async {
   // ── Messages ───────────────────────────────────────────
 
   static Future<List<Map<String, dynamic>>> getMessages(String friendId) async {
-  final res = await http.get(
-    Uri.parse('$baseUrl/messages/$friendId'),
-    headers: await _authHeaders(),
-  );
+    final res = await http.get(Uri.parse('$baseUrl/messages/$friendId'));
+    return List<Map<String, dynamic>>.from(jsonDecode(res.body));
+  }
 
-  return List<Map<String, dynamic>>.from(jsonDecode(res.body));
-}
-
-  static Future<Map<String, dynamic>> sendMessage(
-    String friendId,
-    String content,
-) async {
-  final res = await http.post(
-    Uri.parse('$baseUrl/messages'),
-    headers: await _authHeaders(),
-    body: jsonEncode({
-      'friend_id': friendId,
-      'content': content,
-      'from_me': true,
-    }),
-  );
-
-  return jsonDecode(res.body);
-}
+  static Future<Map<String, dynamic>> sendMessage(String friendId, String content) async {
+    final res = await http.post(
+      Uri.parse('$baseUrl/messages'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'friend_id': friendId, 'content': content, 'from_me': true}),
+    );
+    return jsonDecode(res.body);
+  }
 }
