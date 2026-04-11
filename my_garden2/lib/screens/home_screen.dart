@@ -8,6 +8,9 @@ import 'strengths_screen.dart';
 import 'journal_screen.dart';
 import 'friends_screen.dart';
 import 'message_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,6 +34,26 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() => _friends = friends);
     } catch (_) {}
   }
+  Future<void> testMessage() async {
+  final user = FirebaseAuth.instance.currentUser;
+  final token = await user!.getIdToken();
+
+  final response = await http.post(
+    Uri.parse("https://your-api.onrender.com/messages"),
+    headers: {
+      "Authorization": "Bearer $token",
+      "Content-Type": "application/json",
+    },
+    body: jsonEncode({
+      "friend_id": "test_friend",
+      "content": "Hello from test",
+      "from_me": true
+    }),
+  );
+
+  print("STATUS: ${response.statusCode}");
+  print("BODY: ${response.body}");
+}
 
   void _openQuickMessage(BuildContext context) async {
     if (_friends.isEmpty) {
@@ -79,6 +102,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: Stack(
         children: [
+          ElevatedButton(
+  onPressed: testMessage,
+  child: Text("Test Message"),
+),
           // Background decoration
           Positioned(
             top: -80, right: -60,

@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../services/app_theme.dart';
 import '../services/api_service.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class JournalScreen extends StatefulWidget {
   const JournalScreen({super.key});
@@ -205,6 +206,7 @@ class _JournalEntryScreenState extends State<JournalEntryScreen> {
   }
 
   Future<void> _save() async {
+    print("USER: ${FirebaseAuth.instance.currentUser}");
     if (_contentController.text.trim().isEmpty) return;
     setState(() => _saving = true);
     try {
