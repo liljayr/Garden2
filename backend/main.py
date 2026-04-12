@@ -256,9 +256,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+import json
+import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 import uuid
+import hashlib
+import secrets
 
 # ─── Firebase Setup ────────────────────────────────────────
 
@@ -278,15 +282,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── API Key ────────────────────────────────────────────────
+DATA_FILE = "garden_data.json"
 
-API_KEY = "supersecret123"
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "gratitude": [],
+        "strengths": [],
+        "journal": [],
+        "friends": [],
+        "messages": []
+    }
 
-def verify_api_key(x_api_key: str = Header(...)):
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+# # ─── API Key ────────────────────────────────────────────────
+
+# API_KEY = "supersecret123"
+
+# def verify_api_key(x_api_key: str = Header(...)):
+#     if x_api_key != API_KEY:
+#         raise HTTPException(status_code=401, detail="Unauthorized")
 
 # ─── Models ────────────────────────────────────────────────
+
+class AuthRequest(BaseModel):
+    username: str
+    password: str
 
 class GratitudeEntry(BaseModel):
     id: Optional[str] = None
@@ -311,12 +337,73 @@ class Friend(BaseModel):
     note: Optional[str] = ""
     strengths: Optional[List[str]] = []
 
+# class Message(BaseModel):
+#     id: Optional[str] = None
+#     friend_id: str
+#     content: str
+#     from_me: bool = True
+#     timestamp: Optional[str] = None
 class Message(BaseModel):
     id: Optional[str] = None
-    friend_id: str
+    recipient_username: str          # who you're sending TO (their username)
     content: str
-    from_me: bool = True
     timestamp: Optional[str] = None
+
+# ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+def _hash_password(password: str) -> str:
+    """Simple SHA-256 hash. Good enough for a POC."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def _make_token(username: str) -> str:
+    """Generate a random token and store it."""
+    return secrets.token_hex(32)
+
+def _get_user(username: str):
+    data = load_data()
+    return next((u for u in data.get("users", []) if u["username"] == username), None)
+
+def _verify_token(token: str):
+    """Return username if token is valid, else None."""
+    data = load_data()
+    entry = next((u for u in data.get("users", []) if u.get("token") == token), None)
+    return entry["username"] if entry else None
+
+# ─── Auth routes ──────────────────────────────────────────────────────────────
+
+@app.post("/auth/register")
+def register(req: AuthRequest):
+    data = load_data()
+    if "users" not in data:
+        data["users"] = []
+
+    if any(u["username"] == req.username for u in data["users"]):
+        raise HTTPException(status_code=400, detail="Username already taken")
+
+    token = _make_token(req.username)
+    data["users"].append({
+        "username": req.username,
+        "password_hash": _hash_password(req.password),
+        "token": token,
+    })
+    save_data(data)
+    return {"token": token, "username": req.username}
+
+
+@app.post("/auth/login")
+def login(req: AuthRequest):
+    user = _get_user(req.username)
+    if not user or user["password_hash"] != _hash_password(req.password):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    # Rotate token on each login
+    data = load_data()
+    new_token = _make_token(req.username)
+    for u in data["users"]:
+        if u["username"] == req.username:
+            u["token"] = new_token
+    save_data(data)
+    return {"token": new_token, "username": req.username}
 
 # ─── Gratitude ─────────────────────────────────────────────
 
@@ -434,45 +521,141 @@ def delete_friend(friend_id: str):
     return {"status": "deleted"}
 
 # ─── Messages ──────────────────────────────────────────────
-
-@app.get("/messages/{friend_id}")
-def get_messages(friend_id: str):
-    docs = db.collection("messages") \
-        .where("friend_id", "==", friend_id) \
-        .order_by("timestamp") \
-        .stream()
-
-    return [{**doc.to_dict(), "id": doc.id} for doc in docs]
-
+@app.get("/messages/{other_username}")
+def get_messages(other_username: str, authorization: str = Header(None)):
+    token = authorization.replace("Bearer ", "") if authorization else None
+    me = _verify_token(token) if token else None
+    if not me:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+ 
+    data = load_data()
+    # Return all messages between me and other_username in either direction
+    conversation = [
+        m for m in data.get("messages", [])
+        if (m.get("sender") == me and m.get("recipient") == other_username)
+        or (m.get("sender") == other_username and m.get("recipient") == me)
+    ]
+    # Add a from_me field so Flutter knows which side to display on
+    for m in conversation:
+        m["from_me"] = m.get("sender") == me
+ 
+    return sorted(conversation, key=lambda x: x.get("timestamp", ""))
+ 
+ 
 @app.post("/messages")
-def send_message(message: Message):
-    msg_dict = message.dict()
-    msg_dict["timestamp"] = datetime.utcnow().isoformat()
+def send_message(message: Message, authorization: str = Header(None)):
+    token = authorization.replace("Bearer ", "") if authorization else None
+    me = _verify_token(token) if token else None
+    if not me:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+ 
+    # Check recipient exists
+    data = load_data()
+    recipient_exists = any(
+        u["username"] == message.recipient_username
+        for u in data.get("users", [])
+    )
+    if not recipient_exists:
+        raise HTTPException(status_code=404, detail="Recipient user not found")
+ 
+    msg_dict = {
+        "id": str(len(data["messages"]) + 1) + "_" + datetime.now().strftime("%Y%m%d%H%M%S"),
+        "sender": me,
+        "recipient": message.recipient_username,
+        "content": message.content,
+        "timestamp": datetime.now().isoformat(),
+    }
+    data["messages"].append(msg_dict)
+    save_data(data)
+ 
+    msg_dict["from_me"] = True
+    return msg_dict
+# @app.get("/messages/{friend_id}")
+# def get_messages(friend_id: str, authorization: str = Header(None)):
+#     token = authorization.replace("Bearer ", "") if authorization else None
+#     username = _verify_token(token) if token else "anonymous"
 
-    doc_ref = db.collection("messages").document()
-    doc_ref.set(msg_dict)
+#     data = load_data()
+#     msgs = [
+#         m for m in data["messages"]
+#         if m["friend_id"] == friend_id and m.get("owner", "anonymous") == username
+#     ]
+#     return sorted(msgs, key=lambda x: x.get("timestamp", ""))
 
-    # Simulated reply
-    if message.from_me:
-        import random
-        replies = [
-            "That's so thoughtful of you! 🌸",
-            "Thank you for reaching out! 💚",
-            "You're amazing! 🌻",
-            "That made my day! ✨",
-            "Sending good vibes back! 🌿"
-        ]
 
-        reply = {
-            "friend_id": message.friend_id,
-            "content": random.choice(replies),
-            "from_me": False,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+# @app.post("/messages")
+# def send_message(message: Message, authorization: str = Header(None)):
+#     token = authorization.replace("Bearer ", "") if authorization else None
+#     username = _verify_token(token) if token else "anonymous"
 
-        db.collection("messages").add(reply)
+#     data = load_data()
+#     message.id = str(len(data["messages"]) + 1) + "_" + datetime.now().strftime("%Y%m%d%H%M%S")
+#     message.timestamp = datetime.now().isoformat()
+#     msg_dict = message.dict()
+#     msg_dict["owner"] = username  # ← scope messages to user
+#     data["messages"].append(msg_dict)
 
-    return {"id": doc_ref.id, **msg_dict}
+#     # Simulate a reply
+#     if message.from_me:
+#         import random
+#         replies = [
+#             "That's so thoughtful of you! 🌸",
+#             "Thank you for reaching out! 💚",
+#             "You're amazing! 🌻",
+#             "That made my day! ✨",
+#             "Sending good vibes back! 🌿"
+#         ]
+#         reply = {
+#             "id": str(len(data["messages"]) + 2) + "_reply",
+#             "friend_id": message.friend_id,
+#             "content": random.choice(replies),
+#             "from_me": False,
+#             "timestamp": datetime.now().isoformat(),
+#             "owner": username,
+#         }
+#         data["messages"].append(reply)
+
+#     save_data(data)
+#     return message
+
+# @app.get("/messages/{friend_id}")
+# def get_messages(friend_id: str):
+#     docs = db.collection("messages") \
+#         .where("friend_id", "==", friend_id) \
+#         .order_by("timestamp") \
+#         .stream()
+
+#     return [{**doc.to_dict(), "id": doc.id} for doc in docs]
+
+# @app.post("/messages")
+# def send_message(message: Message):
+#     msg_dict = message.dict()
+#     msg_dict["timestamp"] = datetime.utcnow().isoformat()
+
+#     doc_ref = db.collection("messages").document()
+#     doc_ref.set(msg_dict)
+
+#     # Simulated reply
+#     if message.from_me:
+#         import random
+#         replies = [
+#             "That's so thoughtful of you! 🌸",
+#             "Thank you for reaching out! 💚",
+#             "You're amazing! 🌻",
+#             "That made my day! ✨",
+#             "Sending good vibes back! 🌿"
+#         ]
+
+#         reply = {
+#             "friend_id": message.friend_id,
+#             "content": random.choice(replies),
+#             "from_me": False,
+#             "timestamp": datetime.utcnow().isoformat()
+#         }
+
+#         db.collection("messages").add(reply)
+
+#     return {"id": doc_ref.id, **msg_dict}
 
 # ─── Run ───────────────────────────────────────────────────
 

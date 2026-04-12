@@ -8,6 +8,8 @@ import 'strengths_screen.dart';
 import 'journal_screen.dart';
 import 'friends_screen.dart';
 import 'message_screen.dart';
+import 'login_screen.dart';
+import '../services/auth_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,6 +25,15 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadFriends();
+  }
+
+  Future<void> _logout() async {
+  await AuthService.logout();
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
   }
 
   Future<void> _loadFriends() async {
@@ -110,6 +121,53 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 32),
 
                   // Header
+                  // Row(
+                  //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  //   children: [
+                  //     Column(
+                  //       crossAxisAlignment: CrossAxisAlignment.start,
+                  //       children: [
+                  //         Text('🌿', style: const TextStyle(fontSize: 32))
+                  //             .animate().fadeIn(duration: 600.ms).scale(),
+                  //         const SizedBox(height: 4),
+                  //         Text(
+                  //           'My Garden',
+                  //           style: GoogleFonts.playfairDisplay(
+                  //             fontSize: 38,
+                  //             fontWeight: FontWeight.w800,
+                  //             color: AppTheme.deepGreen,
+                  //           ),
+                  //         ).animate().fadeIn(delay: 200.ms).slideX(begin: -0.2),
+                  //         Text(
+                  //           'Your personal sanctuary',
+                  //           style: GoogleFonts.lato(
+                  //             fontSize: 14,
+                  //             color: AppTheme.sage,
+                  //             letterSpacing: 0.5,
+                  //           ),
+                  //         ).animate().fadeIn(delay: 400.ms),
+                  //       ],
+                  //     ),
+                  //     // Quick message button
+                  //     GestureDetector(
+                  //       onTap: () => _openQuickMessage(context),
+                  //       child: Container(
+                  //         padding: const EdgeInsets.all(12),
+                  //         decoration: BoxDecoration(
+                  //           color: AppTheme.deepGreen,
+                  //           borderRadius: BorderRadius.circular(16),
+                  //           boxShadow: [
+                  //             BoxShadow(
+                  //               color: AppTheme.deepGreen.withOpacity(0.3),
+                  //               blurRadius: 12, offset: const Offset(0, 4),
+                  //             )
+                  //           ],
+                  //         ),
+                  //         child: const Icon(Icons.send_rounded, color: Colors.white, size: 22),
+                  //       ),
+                  //     ).animate().fadeIn(delay: 400.ms).scale(),
+                  //   ],
+                  // ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -137,24 +195,41 @@ class _HomeScreenState extends State<HomeScreen> {
                           ).animate().fadeIn(delay: 400.ms),
                         ],
                       ),
-                      // Quick message button
-                      GestureDetector(
-                        onTap: () => _openQuickMessage(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppTheme.deepGreen,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.deepGreen.withOpacity(0.3),
-                                blurRadius: 12, offset: const Offset(0, 4),
-                              )
-                            ],
-                          ),
-                          child: const Icon(Icons.send_rounded, color: Colors.white, size: 22),
-                        ),
-                      ).animate().fadeIn(delay: 400.ms).scale(),
+                      Row(
+                        children: [
+                          // Quick message button
+                          GestureDetector(
+                            onTap: () => _openQuickMessage(context),
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppTheme.deepGreen,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppTheme.deepGreen.withOpacity(0.3),
+                                    blurRadius: 12, offset: const Offset(0, 4),
+                                  )
+                                ],
+                              ),
+                              child: const Icon(Icons.send_rounded, color: Colors.white, size: 22),
+                            ),
+                          ).animate().fadeIn(delay: 400.ms).scale(),
+                          const SizedBox(width: 10),
+                          // Logout button
+                          GestureDetector(
+                            onTap: _logout,
+                            child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppTheme.sage.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Icon(Icons.logout_rounded, color: AppTheme.sage, size: 22),
+                            ),
+                          ).animate().fadeIn(delay: 500.ms).scale(),
+                        ],
+                      ),
                     ],
                   ),
 
